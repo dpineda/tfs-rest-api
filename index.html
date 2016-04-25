@@ -1,10 +1,19 @@
 <html>
     <head>
-        <title>Tfs Rest Api</title>
+        <title>Tfs Api</title>
         <script src="https://code.jquery.com/jquery-2.2.3.min.js"></script>
     </head>
     <body>
-        <div id="options"></div>        
+        <div id="options" style="display:none">
+            <select id="selectProjects"></select>
+            <button onclick="getTasks()">Get Tasks</button>            
+            <button onclick="createTask()">Create Tasks</button>
+            <button onclick="getQueries()">Get Queries</button>
+            <div id="queries" style="display:none">
+                <select id="selectQueries"></select>
+                <button onclick="getThisQuery()">Get This Query</button>
+            </div>            
+        </div>              
         <h3 id="title"></h3>
         <pre id="result"></pre>   
         <script>
@@ -14,24 +23,38 @@
                 $("#title").text(title);
             };
             
-            print("Loading...", {});
+            // Alternate credentials
+            var user = {
+                password: 'pass',
+                username: 'user'
+            };            
+            var urlBase = 'https://fabrikam.visualstudio.com/defaultcollection/';
+            var apiVersion = 'api-version=1.0';
             
-            var getAuth = function (){
-                // Alternate credentials
-                var user = {
-                    password: "user",
-                    username: "pass"
-                };
+            
+            var getAuth = function (){                
                 return { "Authorization": "Basic " + btoa(user.username + ":" + user.password) };
             };
             
-            var urlBase = 'https://fabrikam.visualstudio.com/defaultcollection/';
-            var apiVersion = 'api-version=1.0';
-            var url = urlBase + "_apis/projects?" + apiVersion;
-            var urlWorkItems = '_apis/wit/workitems/$Task?' + apiVersion;
+            var url = function (url, obj){
+                var urls = {
+                    projects: urlBase + "_apis/projects?" + apiVersion,
+                    task: urlBase + ':project/_apis/wit/workitems/$Task?' + apiVersion,
+                    epic: urlBase + ':project/_apis/wit/workitems/$Epic?' + apiVersion,
+                    queries: urlBase + ':project/_apis/wit/queries?$depth=1&$expand=all&' + apiVersion,
+                    query: urlBase + ':project/_apis/wit/wiql/:query?' + apiVersion
+                };
+                url = urls[url];
+                for(var key in obj){
+                    url = url.replace(':' + key, obj[key]);
+                }
+                return url;
+            }
+            
             
             // Document Ready.            
-            $(function(){                
+            $(function() {
+                print("Loading...", {});
                 getProjects();
             });
             
@@ -39,20 +62,19 @@
             function getProjects (){
                 $.ajax({
                     type: "GET",
-                    url: url,
+                    url: url('projects'),
                     dataType: 'json',
                     headers: getAuth()
                 })
                 .done(function(res) {
                     print("Projects", res);
-                    var options = $('#options');                    
-                    var s = $('<select id="selectProjects" />');
                     var pro = res.value;
+                    var s = $('#selectProjects');
+                    s.empty();
                     for(var val in pro) {
                         $("<option />", {value: pro[val].name, text: pro[val].name}).appendTo(s);
-                    }
-                    options.append(s);
-                    options.append('<button onclick="getTasks()">Get Tasks</button>');
+                    }                    
+                    $('#options').show();
                 })
                 .fail(function(err) {
                     print("Projects ERROR", err);
@@ -62,19 +84,103 @@
             // Get Tasks
             function getTasks(){
                 print("Loading...", {});
+                
                 $.ajax({
                     type: "GET",
-                    url: urlBase + $('#selectProjects').val() +'/'+urlWorkItems,
+                    url: url('task', { project: $('#selectProjects').val() }),
                     dataType: 'json',
                     headers: getAuth()
                 })
                 .done(function(res) {
-                    print("Work Items", res);                    
+                    print("Task Items", res);                    
                 })
                 .fail(function(err) {
-                    print("Work Items ERROR", err);
+                    print("Task Items ERROR", err);
                 });
             }
+            
+            // Create Task
+            function createTask(){
+                print("Loading...", {});
+                var pro = $('#selectProjects').val();
+                $.ajax({
+                    type: "PATCH",
+                    url: url('task', { project: pro }),
+                    contentType: 'application/json-patch+json',
+                    dataType: 'json',
+                    headers: getAuth(),
+                    data:  JSON.stringify([
+                        {
+                            "op":"add",
+                            "path":"/fields/System.Title",
+                            "value":"Test JavaScript implementation for Microsoft Account (pls delete me)"
+                        },
+                        {
+                            "op": "add",
+                            "path": "/fields/System.Tags",
+                            "value": "Calendar; Component; 001"
+                        }])
+                })
+                .done(function(res) {
+                    print("Create Task", res);                    
+                })
+                .fail(function(err) {
+                    print("Create Task ERROR", err);
+                });
+            }
+            
+            // Get Queries
+            function getQueries(){
+                print("Loading...", {});
+                $.ajax({
+                    type: "GET",
+                    url: url('queries', { project: $('#selectProjects').val() }),
+                    dataType: 'json',
+                    headers: getAuth()
+                })
+                .done(function(res) {
+                    print("Queries", res);
+                    var options = $('#options');                    
+                    var s = $('#selectQueries');
+                    s.empty();
+                    var queries = res.value;
+                    for(var query in queries) {
+                        var children = queries[query].children;
+                        // This is a folder iterate again
+                        for(var child in children) {
+                            // The real queries :P
+                            var q = children[child];
+                            // depth = 1, fix this to make it recursive.
+                            if(!q.isFolder)
+                            $("<option />", {value: q.id, text: q.name}).appendTo(s);
+                        }
+                    }
+                    $('#queries').show();
+                })
+                .fail(function(err) {
+                    print("Queries ERROR", err);
+                });
+            };
+            
+            // Get This Query
+            function getThisQuery(){
+                print("Loading...", {});
+                $.ajax({
+                    type: "GET",
+                    url: url('query', {
+                        project: $('#selectProjects').val(),
+                        query: $('#selectQueries').val()
+                    }),
+                    dataType: 'json',
+                    headers: getAuth()
+                })
+                .done(function(res) {
+                    print("Query", res);
+                })
+                .fail(function(err) {
+                    print("Query ERROR", err);
+                });
+            };
         </script>
     </body>
 </html>
